@@ -10,7 +10,7 @@
 #import "Utils.h"
 
 // Punction table from https://github.com/libpinyin/ibus-libpinyin/blob/master/src/PYPunctTable.h
-static const gchar * const puncts[] = {
+static const char * const puncts[] = {
     "", "·", "，", "。", "「", "」", "、", "：", "；", "？", "！", NULL,
     "!", "！", "﹗", "‼", "⁉", NULL,
     "\"", "“", "”", "＂", NULL,
@@ -108,7 +108,7 @@ static const gchar * const puncts[] = {
     "~", "～", "﹋", "﹌", NULL,
 };
 
-static const gchar * const * const punct_table[] = {
+static const char * const * punct_table[] = {
     &puncts[0],    // ""
     &puncts[12],    // "!"
     &puncts[18],    // "\""
@@ -221,6 +221,9 @@ enum PunctMode {
     enum PunctMode m_mode;
 
     NSUInteger m_cursor;
+
+    NSMutableArray *m_selected_puncts;
+    NSMutableArray *m_punct_candidates;
 }
 
 - (void)candidateClickedAt:(int)index withButton:(int)button andState:(int)state {
@@ -305,6 +308,15 @@ enum PunctMode {
 }
 
 - (void)reset {
+    m_mode = MODE_DISABLE;
+    [m_selected_puncts removeAllObjects];
+    [m_punct_candidates removeAllObjects];
+
+    bool need_update = (m_cursor != 0 || [m_text length] != 0);
+    m_cursor = 0;
+    [m_text setString:@""];
+    if (need_update)
+        [self update];
 }
 
 - (void)update {
@@ -326,16 +338,26 @@ enum PunctMode {
     switch (m_mode) {
         case MODE_DISABLE:
             // Check trigger
+            if (ch == '`' && m_cursor == 0) {
+                m_mode = MODE_INIT;
+                [self updatePunctCandidates:ch];
+                [m_selected_puncts removeAllObjects];
+                [m_selected_puncts insertObject:[m_punct_candidates objectAtIndex:0] atIndex:0];
+                [self update];
+            }
             break;
         case MODE_INIT:
             [m_text setString:@""];
+            [m_selected_puncts removeAllObjects];
             m_cursor = 0;
-            break;
         case MODE_NORMAL:
             [m_text insertString:[NSString stringWithFormat:@"%c", ch] atIndex:m_cursor];
-            // [self updatePunctCandidates:ch];
+            [self updatePunctCandidates:ch];
             m_mode = MODE_NORMAL;
-            // TODO
+            // Update selected
+            if ([m_punct_candidates count] > 0) {
+                [m_selected_puncts insertObject:m_punct_candidates[0] atIndex:m_cursor];
+            }
             m_cursor += 1;
             [self update];
             break;
@@ -355,6 +377,9 @@ enum PunctMode {
     m_lookupTable = [[LookupTable alloc] initWithPageSize:[m_config pageSize]];
 
     m_cursor = 0;
+    
+    m_selected_puncts = [[NSMutableArray alloc] init];
+    m_punct_candidates = [[NSMutableArray alloc] init];
 
     return self;
 }
@@ -476,6 +501,28 @@ enum PunctMode {
         default:
             return NO;
     }
+}
+
+- (void)updatePunctCandidates:(char)ch {
+    // Clear
+    [m_punct_candidates removeAllObjects];
+
+    // Search
+    const char * const * const *search_result = NULL;
+    for (int i = 0; i < sizeof(punct_table); i++) {
+        if (punct_table[i][0][0] == ch) {
+            search_result = punct_table + i;
+            break;
+        }
+    }
+
+    if (search_result != NULL) {
+        for (const char * const * res = (*search_result) + 1; *res != NULL; ++res) {
+            [m_punct_candidates addObject:[NSString stringWithUTF8String:*res]];
+        }
+    }
+
+    // TODO: Fill lookup table
 }
 
 @end
